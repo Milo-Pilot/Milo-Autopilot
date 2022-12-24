@@ -1,6 +1,6 @@
 /*
 Source file of the Milo autopilot.
-Philippe Dufossé 2022
+
 
 Runs on a arduino-compatible nano board.
 It may be edited using the arduino IDE (the arduino programming platform).
