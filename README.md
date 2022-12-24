@@ -1,5 +1,5 @@
 # Source file of the Milo autopilot.
-Philippe Dufossé 2022
+
 
 La version française suit.
 
