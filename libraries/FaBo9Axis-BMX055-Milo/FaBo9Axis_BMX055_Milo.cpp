@@ -121,9 +121,11 @@ void FaBo9Axis::configuration()
   // Set Normal mode
   //  writeI2c(mag_addr, BMX055_MAG_ADV_OP_OUTPUT_REG, BMX055_MAG_OP_MODE_NORMAL);
   // Repetitions for X-Y Axis  0x17 = 47
-  writeI2c(mag_addr, BMX055_MAG_REP_XY_REG, 0x17);
+  // Repetitions for X-Y Axis  0x2F = 47
+  writeI2c(mag_addr, BMX055_MAG_REP_XY_REG, 0x2F);
   // Repetitions for Z-Axis  0x01 = 1
-  writeI2c(mag_addr, BMX055_MAG_REP_Z_REG, 0x01);
+  // Repetitions for Z-Axis  0x53 = 83
+  writeI2c(mag_addr, BMX055_MAG_REP_Z_REG, 0x53);
 
   // End of modifications for Milo --------------------------
   
@@ -227,12 +229,20 @@ void FaBo9Axis::readMag(int *mag)
     mag[1] -= 8192;
   }
 
+// Modifications for Milo --------------------------
+
   // conv data  mag z:15bit
-  mag[2] = ((mag_data[3]<<7) + (mag_data[2]>>1));
+  mag[2] = ((mag_data[5] * 256) + (mag_data[4] & 0xFE)) / 2;
+  //mag[2] = ((mag_data[3]<<7) + (mag_data[2]>>1));
+
+// End of modifications for Milo --------------------------
+
   if (mag[2] > 16383)
   {
     mag[2] -= 32768;
   }
+
+
 }
 
 /**
