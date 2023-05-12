@@ -95,7 +95,7 @@ Lorsque l’utilisateur embraye le pilote, cela positionne automatiquement l’"
 
 ### Si l’interrupteur de calibration est "on":
 
-L'utilisateur doit exécuter 2 cercles avec le bateau; ce faisant, le programme calcule des données qui seront utilisées pour déterminer les offsets de calibration. Lorsque les 2 cercles sont éxécutés, l'uitilisateur place l'interrupteur de calibration sur "off" et à cet instant , les offsets de calibration sont calculés et stockés dans l'EEPROM de la carte, pour une utilisation ultérieure.
+L'utilisateur doit exécuter 2 cercles avec le bateau; ce faisant, le programme calcule des données qui seront utilisées pour déterminer les offsets de calibration. Lorsque les 2 cercles sont éxécutés, l'utilisateur place l'interrupteur de calibration sur "off" et à cet instant , les offsets de calibration sont calculés et stockés dans l'EEPROM de la carte, pour une utilisation ultérieure.
 
 
 ### Si l’interrupteur de calibration est "off" :
