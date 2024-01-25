@@ -23,9 +23,9 @@ What this program do :
   The program constantly computes the current heading angle and current angular speed of the boat.
   When user engages the pilot, a sensor detects that pilot is engaged. This sensor automatically switches the "engaging switch" on.
   At the time the pilot is engaged, the heading angle becomes the "target heading angle" 
-  (Deviation heading angle) is :  (current heading angle) - (target heading angle)
+  (heading deviation angle) equals to :  (current heading angle) - (target heading angle)
 
-  the program uses deviation heading and angular speed to compute whether the motor of the pilot must be run or not. It uses a PID (without "I"). 
+  the program uses heading  deviation and angular speed to compute whether the motor of the pilot must be run or not. It uses a PID (without "I"). 
   Motor must be run if the command computed by PID is outside the deadband. 
   If motor must be run, h-bridge connected to the board is activated, and current delivered to the motor is measured.
   If this current is too high (for example if the tiller is blocked by an obstacle), the signal to the h-bridge is paused.
@@ -49,29 +49,26 @@ What this program do :
 
 // Some constants
 #define  VAL_ZERO 0.01
-#define  COEFF_GYRO  0.5          // 
 #define  KHEAD   1.0              // For the PID : Coefficient of the "P" component of the PID
-#define  KDERIV  4.0              // For the PID : Coefficient of the "D" component of the PID
+#define  KDERIV   4.0             // For the PID : Coefficient of the "D" component of the PID
 #define  DEADBAND  7.0            //  Deadband. If command remains inside this deadband we do nothing.
-#define  COEFF_GYRO_HEADING  0.5  // Coefficient used for the complementary filder applied to heading angle
+#define  COEFF_GYRO_HEADING   0.9 // Coefficient used for the complementary filder applied to heading angle
 #define  CURRENTMAX  220          // Representing the maximum current of the h-bridge output. If measured current exceeds this value, we stop 
 #define  MAXHEALING  0.97         // Used for the calibration. If scalar product of the current healing angle is below this value,
                                   // that means that the boat is not flat; this loop is skipped.
 
 //   EEPROM addresses of data stored in EEPROM :
-//   Calibration status and reference axis number are int, so they occupies 2 bytes (each).  
+//   Calibration status is int, so it occupies 2 bytes..  
 //   All other values are float, so each one occupies 4 bytes.
 
 #define  ADD_calib_status  0  // calibration status (int 0 : not calibrated  / 1 : calibrated)  
 #define  ADD_x_Off  2         // x, y calibration offsets
 #define  ADD_y_Off  6
-#define  ADD_RefAxisNumber 10 // number of the reference axis (0 to 2)
 
 FaBo9Axis mySensor;           // BMX055 IMU sensor 
 
 // Some various variables, that must exist all along the program.
-unsigned long CurrentTimeLoop=0.0;
-unsigned long CurrentTimeGrav=0.0;
+unsigned long CurrentTimeLoop = 0.0;
 int iRunPrevious = 0;
 int iRunTooHighCurrent = 0;              // rotation sense with too high current
 float TargetHeading, CurrentHeading;
@@ -82,20 +79,15 @@ float GyroRate = 0.0;
 int calibration_status;
 
 float Current_Xmin,  Current_Xmax,  Current_Ymin, Current_Ymax;  // some variables used for calibration offsets calculation
-float x_Offset, y_Offset;     //   calibration offsets, stored in EEPROM
-
-int refAxisNumber;
-float xPreviousPt = 0.0, yPreviousPt = 0.0;
+float x_Offset, y_Offset;               //   calibration offsets, stored in EEPROM
 
 float VGyro[3]={0.0, 0.0, 0.0};         // Gyrometer vector read from the IMU
 float VMag[3]={0.0, 0.0, 0.0};          // Earth magnetic vector read from the IMU
-float VAccel[3]={0.0, 0.0, 0.0};        // Acceleration vector read from the IMU
-float VGrav[3]={0.0, 0.0, 0.0};         // Gravity vector
-float VRefBoat[3]={0.0, 0.0, 0.0};      // Reference vector of the boat
-float AngleGrav[3]={0.0, 0.0, 0.0};     // angles of the gravity vector
+float VGrav[3]={0.0, 0.0, 0.0};         // Gravity vector read from the IMU
 float VXRefFrame[3]={0.0, 0.0, 0.0};    // X axis of the horizontal reference frame
 float VYRefFrame[3]={0.0, 0.0, 0.0};    // Y axis of the horizontal reference frame
 float VZRefFrame[3]={0.0, 0.0, 0.0};    // Z axis of the horizontal reference frame
+float VVert[3]={0.0, 0.0, 1.0};         // Vertical vector
 
 //---------------------------------------------------------------------------------------------
 // SETUP FUNCTION - (This code is executed once)
@@ -129,9 +121,6 @@ void setup()
   // Note that by default, when we are not in calibration mode (switch is set to "off"), value of this digital pin is "1".
   pinMode(I_CALIBR,INPUT_PULLUP);
   
-  CurrentTimeLoop = millis();
-  CurrentTimeGrav = CurrentTimeLoop;
-
   // Read current calibration data from EEPROM (if calibration is done)
   EEPROM.get(ADD_calib_status, calibration_status);
 
@@ -139,7 +128,7 @@ void setup()
   {
     EEPROM.get(ADD_x_Off, x_Offset);
     EEPROM.get(ADD_y_Off, y_Offset);
-     
+            
     Serial.println("SETUP - CALIBRATION DATA");
     Serial.print("x_Offset:  ");
     Serial.println(x_Offset);
@@ -149,36 +138,16 @@ void setup()
  
   // Read data from the IMU
   ReadIMU();
+ 
+  CurrentTimeLoop = millis();
   
-  // Calculate initial gravity vector.
-  CalculateGravity();
-
-  // Choose the reference vector attached to the boat. Should be the most possible orthogonal to the gravity vector.
-  // If calibration has been executed already, the reference axis number is stored in EEPROM; otherwise, calculate it.
-  if (calibration_status == 1) EEPROM.get(ADD_RefAxisNumber, refAxisNumber);
-
-  else
-  {
-    float psx = fabs(VGrav[0]);
-    float psy = fabs(VGrav[1]);
-    float psz = fabs(VGrav[2]);
-    if (psx <= psy && psx <= psz) refAxisNumber = 0;
-    else
-    {
-      if (psy <= psx && psy <= psz) refAxisNumber = 1;
-      else refAxisNumber = 2;
-    }
-  }
-
-  VRefBoat[refAxisNumber] = 1.0;
-
   // Calculate horizontal reference frame and initial heading (to initialize the CurrentHeading variable)
-  CalculateHorReferenceFrame(VGrav, VXRefFrame, VYRefFrame, VZRefFrame);
+  CalculateHorReferenceFrame(VXRefFrame, VYRefFrame, VZRefFrame);
   CurrentHeading = CalculateHeading(); 
 }
 
 //---------------------------------------------------------------------------------------------
-// LOOP function - (This code is looped forever)
+// LOOP FUNCTION - (This code is looped forever)
 //---------------------------------------------------------------------------------------------
 
 void loop() 
@@ -188,11 +157,10 @@ void loop()
   int icurrent1, icurrent2;
   int iFirstTime;
   unsigned long NewCurrentTime;
-
+  
   // Read data from the IMU, calculate gravity vector and calculate horizontal reference frame
   ReadIMU();
-  CalculateGravity();
-  CalculateHorReferenceFrame(VGrav, VXRefFrame, VYRefFrame, VZRefFrame);
+  CalculateHorReferenceFrame(VXRefFrame, VYRefFrame, VZRefFrame);
   
   // CALIBRATION ---------------------------------------------------------
   
@@ -227,22 +195,22 @@ void loop()
 
   // Calculate current heading   (between -180 and 180 degrees).
   CalculatedHeading = CalculateHeading();
- 
-  // Apply a complementary filter to current heading
-  // This is a combination of the calculated heading, and of angular speed, integrated along the loop duration (dt).
-  // This filter is used to reduce the noise produced by the IMU magnetometer
+  
+  // Solving the jump from -180 to 180 issue.
+  if ( CalculatedHeading - CurrentHeading <= -180.0) CalculatedHeading += 360.0;
+  else if ( CalculatedHeading - CurrentHeading >= 180.0) CalculatedHeading -= 360.0;
 
+  // Apply a complementary filter to current heading
+  // This is a combination of the calculated heading, and of angular speed (GyroRate), integrated along the loop duration (dt).
+  // This filter is used to reduce the noise produced by the IMU magnetometer
+  
   NewCurrentTime = millis();
   dt = float(NewCurrentTime - CurrentTimeLoop) / 1000.0;
   CurrentTimeLoop = NewCurrentTime;
   float CoeffHeading = 1.0 - COEFF_GYRO_HEADING;
 
-  if ( CalculatedHeading - CurrentHeading <= -180.0) CalculatedHeading += 360.0;
-  else if ( CalculatedHeading - CurrentHeading >= 180.0) CalculatedHeading -= 360.0;
-
-  CurrentHeading = COEFF_GYRO_HEADING * (CurrentHeading - GyroRate * dt) + CoeffHeading * CalculatedHeading;
-
-  // Solving the jump from -180 to 180 issue.
+  CurrentHeading = COEFF_GYRO_HEADING * (CurrentHeading + GyroRate * dt) + CoeffHeading * CalculatedHeading;
+  // must be between -180 and 180 degrees.
   if (CurrentHeading <= -180.0) CurrentHeading += 360.0;
   if (CurrentHeading > 180.0) CurrentHeading -= 360.0;
  
@@ -253,7 +221,7 @@ void loop()
      if (iEngage == 0)
      {
       iEngage = 1;
-      TargetHeading = CurrentHeading; 
+      TargetHeading = CurrentHeading;
      }
   }
   else iEngage = 0; 
@@ -261,40 +229,39 @@ void loop()
   if (iEngage == 1) 
   {
     // Calculate deviation of heading
-    DeviationHeading = TargetHeading - CurrentHeading; 
+    DeviationHeading = CurrentHeading - TargetHeading; 
 
-    // Solving (again...) the jump from -180 to 180 issue.
+    // must be between -180 and 180 degrees.
     if (DeviationHeading <= -180.0) DeviationHeading += 360.0;
     if (DeviationHeading > 180.0) DeviationHeading -= 360.0; 
  
     // Calculating the "command" that will be used later to decide whether the pilot must run or not.
-    // Here we use a "PID" without "I", combining the heading deviation and the angular speed.
+    // Here we use a "PID" (without "I"), combining the heading deviation and the angular speed (GyroRate).
     Command = KHEAD * DeviationHeading + KDERIV * GyroRate;
-      
+
     // If command is outside of deadband : motor of pilot must run.
     // Here we define whether motor of pilot must run clockwise or counter-clockwise.
+    iRun = 0;
     if (Command >= DEADBAND) iRun = -1;
     else if (Command <= -DEADBAND) iRun = 1; 
-   }
-
-/*
+  }
+   
+  /*
   Serial.print("TargHd:");
   Serial.print(TargetHeading);
   Serial.print(",");
   Serial.print("CurHd:");
   Serial.print(CurrentHeading);
+  Serial.print(",");
+  Serial.print("GYRORATE:");
+  Serial.print(GyroRate);   
   Serial.print(",");  
-  Serial.print("GyrRat: ");
-  Serial.print(GyroRate);  
-  Serial.print(",");  
-  Serial.print("                            DevHd:");
+  Serial.print("                    DevHd:");
   Serial.print(DeviationHeading);
-  Serial.println();
-  Serial.print("  /  GyrRat: ");
-  Serial.print(GyroRate);
-  Serial.print("  /  Commd: ");
+   Serial.print("  /  Commd: ");
   Serial.print(Command);
-  Serial.print("  /  Run: ");
+  Serial.print(","); 
+  Serial.print("Run:");
   Serial.println(iRun);
 */
 
@@ -369,7 +336,7 @@ void ReadIMU()
 {
   int vect[3], index;
   mySensor.readGyro(vect);
-  // in degrees / second
+  // in degrees per second
   for (index = 0; index < 3; index++) VGyro[index] = (float) vect[index] * 0.0038;
 
   // Refer to the data sheet of the BMX055: x axis of the magnetometer corresponds to the y axis of the acceleromet and gyro, and it is inverted.
@@ -379,8 +346,16 @@ void ReadIMU()
   VMag[1] = (float) vect[0];
   VMag[2] = (float) vect[2]; 
 
+  // read gravity vector
   mySensor.readAccel(vect) ;    
-  for (index = 0; index < 3; index++) VAccel[index] = (float) vect[index];
+  for (index = 0; index < 3; index++) VGrav[index] = (float) vect[index];
+  VNormalize(VGrav);
+  
+  // Calculate the angular speed that will be used as the derivative part of the PID .
+  // This is the rotation speed around the gravity vector. 
+  // rotation around each x,y,z axis contributes with a factor of scalar product (axis, gravity vector).
+  // in degrees per second
+  GyroRate =   VScalarProduct(VGyro, VGrav);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -389,20 +364,22 @@ void ReadIMU()
 
 float CalculateHeading()
 {
-  float x, y;
-  
-  // Compute magnetic vector in horizontal reference frame
-  x = VScalarProduct(VXRefFrame, VMag);
-  y = VScalarProduct(VYRefFrame, VMag);
- 
+  float xmag, ymag, angle;
+
   // if calibration is done substract calibration offsets
   if (calibration_status == 1)
   {
-    x -= x_Offset;
-    y -= y_Offset;
+    VMag[0] -= x_Offset;
+    VMag[1] -= y_Offset;
   }  
   
-  return (atan2(y, x) * RAD_TO_DEG);
+  // Compute magnetic vector in horizontal reference frame
+  xmag = VScalarProduct(VXRefFrame, VMag);
+  ymag = VScalarProduct(VYRefFrame, VMag);
+
+  // compute and return the heading angle  (between -180 and +180 degrees)
+  angle = atan2(xmag, ymag) * RAD_TO_DEG; 
+  return (angle);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -414,45 +391,17 @@ float CalculateHeading()
 void ExecuteCalibration(int iFirstTime)
 {
   float xflat, yflat;
-  int index, index1;
-  float VVert[3];         // Vertical vector
+   
+  // stop the motor
+  digitalWrite(IN_1, 0) ;
+  digitalWrite(IN_2, 0) ;
 
-  // Calculate vertical vector
-  // At this time, the boat is supposed to be "flat", no healing.
-  // VVert (vertical vector) is the mean of 10 times calculated gravity vectors.
-  if (iFirstTime == 1)
-  {
-    for (index = 0; index < 3; index++) VVert[index] = 0.0;
-    for (index1 = 0; index1 < 10; index1++)
-    {
-      CalculateGravity();
-      for (index = 0; index < 3; index++) VVert[index] += VGrav[index];
-    }
-    for (index = 0; index < 3; index++) VVert[index] /= 10.0;
-    VNormalize(VVert);
-
-    float psx = fabs(VVert[0]);
-    float psy = fabs(VVert[1]);
-    float psz = fabs(VVert[2]);
-    if (psx <= psy && psx <= psz) refAxisNumber = 0;
-    else
-    {
-      if (psy <= psx && psy <= psz) refAxisNumber = 1;
-      else refAxisNumber = 2;
-    }
-
-    VRefBoat[0] = 0.0;
-    VRefBoat[1] = 0.0;
-    VRefBoat[2] = 0.0;
-    VRefBoat[refAxisNumber] = 1.0;
-  }
-  
   // If the boat is healing too much : exit
   if (iFirstTime == 0 && VScalarProduct(VGrav, VVert) < MAXHEALING) return;
 
   xflat = VScalarProduct(VXRefFrame, VMag);
   yflat = VScalarProduct(VYRefFrame, VMag);
- 
+   
   // If we are in the first loop of calibration mode, just initialize min and max from read values
   if (iFirstTime == 1)
   {
@@ -484,16 +433,14 @@ void StoreNewOffsetsInEEPROM()
     EEPROM.put(ADD_calib_status, calibration_status);
   }
   
-  // Store offsets in EEPROM.
+  // Calculate offsets in vertical reference frame
   x_Offset = (Current_Xmax + Current_Xmin) / 2.0;
   y_Offset = (Current_Ymax + Current_Ymin) / 2.0;
-  
+   
+  // Store offsets in EEPROM.
   EEPROM.put(ADD_x_Off, x_Offset);
   EEPROM.put(ADD_y_Off, y_Offset);
- 
-  // reference axis number
-  EEPROM.put(ADD_RefAxisNumber, refAxisNumber);
-
+  
   Serial.println("STORE IN EEPROM - CALIBRATION DATA");
   Serial.print("x_Offset:  ");
   Serial.println(x_Offset);
@@ -501,85 +448,22 @@ void StoreNewOffsetsInEEPROM()
   Serial.println(y_Offset);
 }
 
-
 //---------------------------------------------------------------------------------------------
-// Calculate horizontal reference frame from vertical vector
+// Calculate horizontal reference frame from gravity vector
 //---------------------------------------------------------------------------------------------
 
-void CalculateHorReferenceFrame(float VertVector[], float VX[], float VY[], float VZ[] )
+void CalculateHorReferenceFrame(float VX[], float VY[], float VZ[] )
 {
-  VZ[0] = VertVector[0]; 
-  VZ[1] = VertVector[1]; 
-  VZ[2] = VertVector[2]; 
-  VectorialProduct(VRefBoat, VZ, VX);
+  VZ[0] = VGrav[0]; 
+  VZ[1] = VGrav[1]; 
+  VZ[2] = VGrav[2]; 
+  
+  VX[0] = 0.0;  
+  VX[1] = -VGrav[2];
+  VX[2] = VGrav[1];
   VNormalize(VX);
+  
   VectorialProduct(VZ, VX, VY);
-}
-
-//---------------------------------------------------------------------------------------------
-// Calculate Gravity vector
-//---------------------------------------------------------------------------------------------
-
-void CalculateGravity()
-{
-  float AngleAccel[3], dt;
-  unsigned long NewCurrentTime;
-
-  VNormalize(VAccel);
- 
-  // First calculation of VGrav : Vgrav and its angles directly taken from acceleration vector
-  // Other following calculations : complementary filter is used.
-  
-  if (VGrav[0] == 0.0 && VGrav[1] == 0.0 && VGrav[2] == 0.0)
-  {
-    CurrentTimeGrav = millis(); 
-    VGrav[0] = VAccel[0];
-    VGrav[1] = VAccel[1];
-    VGrav[2] = VAccel[2];
-    AngleFromVector(VAccel, AngleGrav);
-  }
-  else 
-  {  
-    AngleFromVector(VAccel, AngleAccel);
-  
-    NewCurrentTime = millis(); 
-    dt = float(NewCurrentTime - CurrentTimeGrav) / 1000.0;
-    CurrentTimeGrav = NewCurrentTime;
-
-    // Calculate the gravity angles using a complementary filter
-    // This filter combines acceleration data and gyro data. Here data is seen as the derivative of the angles of the acceleration vector.     
-    if ( AngleAccel[0] - AngleGrav[0] <= -180.0) AngleAccel[0] += 360.0;
-    else if ( AngleAccel[0] - AngleGrav[0] >= 180.0) AngleAccel[0] -= 360.0;
-    if ( AngleAccel[1] - AngleGrav[1] <= -180.0) AngleAccel[1] += 360.0;
-    else if ( AngleAccel[1] - AngleGrav[1] >= 180.0) AngleAccel[1] -= 360.0;
-    if ( AngleAccel[2] - AngleGrav[2] <= -180.0) AngleAccel[2] += 360.0;
-    else if ( AngleAccel[2] - AngleGrav[2] >= 180.0) AngleAccel[2] -= 360.0;
-
-    float coeffAngle = 1.0 - COEFF_GYRO;
-    AngleGrav[0] = COEFF_GYRO * (AngleGrav[0] + VGyro[0] * dt) + coeffAngle * AngleAccel[0]; 
-    AngleGrav[1] = COEFF_GYRO * (AngleGrav[1] + VGyro[1] * dt) + coeffAngle * AngleAccel[1]; 
-    AngleGrav[2] = COEFF_GYRO * (AngleGrav[2] + VGyro[2] * dt) + coeffAngle * AngleAccel[2]; 
- 
-    VectorFromAngle(VGrav, AngleGrav);  
-   }
-   
-  VNormalize(VGrav);
-/*
-  Serial.print("GravX:");
-  Serial.print(VGrav[0]);
-  Serial.print(",");
-  Serial.print("GravY:");
-  Serial.print(VGrav[1]);
-  Serial.print(",");
-  Serial.print("GravZ:");
-  Serial.println(VGrav[2]);
-*/
-
-  // Calculate the rotation factor that will be used as the derivative part of the PID .
-  // This is the rotation speed around the gravity vector. 
-  // rotation around each x,y,z axis contributes with a factor of scalar product (axis, gravity vector).
-  // in degrees per second
-  GyroRate = VGyro[0] * VGrav[0] +  VGyro[1] * VGrav[1] +  VGyro[2] * VGrav[2];
 }
 
 
@@ -618,55 +502,5 @@ void VectorialProduct(float V1[], float V2[], float VResult[])
 float VScalarProduct(float V1[], float V2[])
 {
     return (V1[0]*V2[0] + V1[1]*V2[1] + V1[2]*V2[2]);
-}
-
-// Here from a 3D vector we calculate angles of projections of this vector in the yz, zx and xy planes respectively.
-void AngleFromVector(float Vector[], float Angle[])
-{
-  // Calculate angles in degrees, from -180 to + 180.
-  Angle[0] = atan2(Vector[2], Vector[1]) * RAD_TO_DEG;
-  Angle[1] = atan2(Vector[0], Vector[2]) * RAD_TO_DEG;
-  Angle[2] = atan2(Vector[1], Vector[0]) * RAD_TO_DEG;
-}
-
-// Opposite to the previous utility From angles in the yz, zx and xy planes we recalculate the vector.
-void VectorFromAngle(float Vector[], float Angle[])
-{
-  float cosax, sinax, cosay, sinay, cosaz, sinaz, x, y, z;
- 
-  cosax = cos (Angle[0] * DEG_TO_RAD);
-  sinax = sin (Angle[0] * DEG_TO_RAD);
-  cosay = cos (Angle[1] * DEG_TO_RAD);
-  sinay = sin (Angle[1] * DEG_TO_RAD);
-  cosaz = cos (Angle[2] * DEG_TO_RAD);
-  sinaz = sin (Angle[2] * DEG_TO_RAD);
-  
-  // Calculating x
-  if (fabs(cosaz) < VAL_ZERO  || fabs(sinay) < VAL_ZERO) x = 0.0;
-  else
-    {
-      x = 1.0 / sqrt(1.0 + sq(sinaz / cosaz) + sq(cosay / sinay));
-      if (cosaz < 0.0) x = -x;
-    }
-  
-   // Calculating y
-  if (fabs(cosax) < VAL_ZERO  || fabs(sinaz) < VAL_ZERO) y = 0.0;
-  else
-    {
-      y = 1.0 / sqrt(1.0 + sq(sinax / cosax) + sq(cosaz / sinaz));
-      if (cosax < 0.0) y = -y;
-    }
-  
-   // Calculating z
-  if (fabs(cosay) < VAL_ZERO  || fabs(sinax) < VAL_ZERO) z = 0.0;
-  else
-    {
-      z = 1.0 / sqrt(1.0 + sq(sinay / cosay) + sq(cosax / sinax));
-      if (cosay < 0.0) z = -z;
-    }
-
-  Vector[0] = x;
-  Vector[1] = y;
-  Vector[2] = z;
 }
 
