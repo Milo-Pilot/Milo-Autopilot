@@ -1,6 +1,6 @@
 /*
 Source file of the Milo autopilot.
-
+Version : 4
 
 Runs on a arduino-compatible nano board.
 It may be edited using the arduino IDE (the arduino programming platform).
@@ -65,6 +65,11 @@ What this program do :
 #define  ADD_x_Off  2         // x, y calibration offsets
 #define  ADD_y_Off  6
 
+// Constants related to the dead band refinement (see further)
+#define  TABDEVSIZE 100
+#define  maxdivider 1.3 // 1.5 // 2.0 
+
+
 FaBo9Axis mySensor;           // BMX055 IMU sensor 
 
 // Some various variables, that must exist all along the program.
@@ -89,6 +94,12 @@ float VYRefFrame[3]={0.0, 0.0, 0.0};    // Y axis of the horizontal reference fr
 float VZRefFrame[3]={0.0, 0.0, 0.0};    // Z axis of the horizontal reference frame
 float VVert[3]={0.0, 0.0, 1.0};         // Vertical vector
 
+// Variables related to the dead band refinement (see further)
+float TABDEV[TABDEVSIZE];
+float integdev = 0.0;
+int indextabdev = 0;
+float integ_factor = 0.0;
+ 
 //---------------------------------------------------------------------------------------------
 // SETUP FUNCTION - (This code is executed once)
 //---------------------------------------------------------------------------------------------
@@ -144,6 +155,11 @@ void setup()
   // Calculate horizontal reference frame and initial heading (to initialize the CurrentHeading variable)
   CalculateHorReferenceFrame(VXRefFrame, VYRefFrame, VZRefFrame);
   CurrentHeading = CalculateHeading(); 
+
+  // Initialize the TABDEV array, and the integ_factor variable. They will be used in the dead band refinement (see further).
+  for (int index = 0; index < TABDEVSIZE; index++) TABDEV[index] = 0.0;
+  indextabdev = 0;
+  integ_factor = maxdivider / (DEADBAND * TABDEVSIZE);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -235,6 +251,27 @@ void loop()
     if (DeviationHeading <= -180.0) DeviationHeading += 360.0;
     if (DeviationHeading > 180.0) DeviationHeading -= 360.0; 
  
+    // Refinement of the dead band : we integrate the heading deviation along time, using the TABDEV array.
+    // the resulting value (integdev) is used to reduce the actual value of the dead band.
+    // This is relevant in very calm navigation conditions, whan the gyro has a very small action on the PID. 
+
+    float deadband = DEADBAND;
+    integdev -= TABDEV[indextabdev];
+    if (DeviationHeading < DEADBAND && DeviationHeading > -DEADBAND)
+    {
+      integdev += DeviationHeading;
+      TABDEV[indextabdev] = DeviationHeading;
+      deadband = DEADBAND / (1.0 + (fabs(integdev) * integ_factor));
+    }
+    else
+    {
+      TABDEV[indextabdev] = 0.0;
+      deadband = DEADBAND;
+    }
+    indextabdev++;
+    if  (indextabdev == TABDEVSIZE) indextabdev = 0;
+   
+  
     // Calculating the "command" that will be used later to decide whether the pilot must run or not.
     // Here we use a "PID" (without "I"), combining the heading deviation and the angular speed (GyroRate).
     Command = KHEAD * DeviationHeading + KDERIV * GyroRate;
@@ -242,10 +279,11 @@ void loop()
     // If command is outside of deadband : motor of pilot must run.
     // Here we define whether motor of pilot must run clockwise or counter-clockwise.
     iRun = 0;
-    if (Command >= DEADBAND) iRun = -1;
-    else if (Command <= -DEADBAND) iRun = 1; 
+    if (Command >= deadband) iRun = -1;
+    else if (Command <= -deadband) iRun = 1; 
   }
-   
+
+
   /*
   Serial.print("TargHd:");
   Serial.print(TargetHeading);
@@ -258,8 +296,11 @@ void loop()
   Serial.print(",");  
   Serial.print("                    DevHd:");
   Serial.print(DeviationHeading);
-   Serial.print("  /  Commd: ");
+  Serial.print("  /  Commd: ");
   Serial.print(Command);
+  Serial.print(",");
+  Serial.print("  /  deadband:");
+  Serial.print(deadband);     
   Serial.print(","); 
   Serial.print("Run:");
   Serial.println(iRun);
