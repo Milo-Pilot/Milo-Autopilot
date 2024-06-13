@@ -1,6 +1,6 @@
 /*
 Source file of the Milo autopilot.
-Version : 4
+Version : 5
 
 Runs on a arduino-compatible nano board.
 It may be edited using the arduino IDE (the arduino programming platform).
@@ -84,7 +84,8 @@ float GyroRate = 0.0;
 int calibration_status;
 
 float Current_Xmin,  Current_Xmax,  Current_Ymin, Current_Ymax;  // some variables used for calibration offsets calculation
-float x_Offset, y_Offset;               //   calibration offsets, stored in EEPROM
+float x_Offset=0.0;               //   calibration offsets, stored in EEPROM
+float y_Offset=0.0;
 
 float VGyro[3]={0.0, 0.0, 0.0};         // Gyrometer vector read from the IMU
 float VMag[3]={0.0, 0.0, 0.0};          // Earth magnetic vector read from the IMU
@@ -139,14 +140,14 @@ void setup()
   {
     EEPROM.get(ADD_x_Off, x_Offset);
     EEPROM.get(ADD_y_Off, y_Offset);
-            
-    Serial.println("SETUP - CALIBRATION DATA");
-    Serial.print("x_Offset:  ");
-    Serial.println(x_Offset);
-    Serial.print("y_Offset:  ");
-    Serial.println(y_Offset);
   }
- 
+
+  Serial.println("SETUP - CALIBRATION DATA");
+  Serial.print("x_Offset:  ");
+  Serial.println(x_Offset);
+  Serial.print("y_Offset:  ");
+  Serial.println(y_Offset);
+
   // Read data from the IMU
   ReadIMU();
  
@@ -283,13 +284,25 @@ void loop()
     else if (Command <= -deadband) iRun = 1; 
   }
 
-
   /*
-  Serial.print("TargHd:");
-  Serial.print(TargetHeading);
+  float fmax, fmin;
+  fmax = 180.0;
+  fmin = -180.0;
+  Serial.print("max:");
+  Serial.print(fmax);
   Serial.print(",");
+  Serial.print("min:");
+  Serial.print(fmin);
+  Serial.print(",");
+  //Serial.print("TargHd:");
+  //Serial.print(TargetHeading);
+  //Serial.print(",");
   Serial.print("CurHd:");
   Serial.print(CurrentHeading);
+  Serial.print(",");
+  Serial.print("CalHd:");
+  Serial.println(CalculatedHeading);
+
   Serial.print(",");
   Serial.print("GYRORATE:");
   Serial.print(GyroRate);   
@@ -299,9 +312,6 @@ void loop()
   Serial.print("  /  Commd: ");
   Serial.print(Command);
   Serial.print(",");
-  Serial.print("  /  deadband:");
-  Serial.print(deadband);     
-  Serial.print(","); 
   Serial.print("Run:");
   Serial.println(iRun);
 */
@@ -393,10 +403,9 @@ void ReadIMU()
   VNormalize(VGrav);
   
   // Calculate the angular speed that will be used as the derivative part of the PID .
-  // This is the rotation speed around the gravity vector. 
-  // rotation around each x,y,z axis contributes with a factor of scalar product (axis, gravity vector).
+  // This is the rotation speed around the Z axis of the IMU sensor. 
   // in degrees per second
-  GyroRate =   VScalarProduct(VGyro, VGrav);
+  GyroRate =   VGyro[2];
 }
 
 //---------------------------------------------------------------------------------------------
