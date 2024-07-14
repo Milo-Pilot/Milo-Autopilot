@@ -1,6 +1,6 @@
 /*
 Source file of the Milo autopilot.
-Version : 5
+Version : 6
 
 Runs on a arduino-compatible nano board.
 It may be edited using the arduino IDE (the arduino programming platform).
@@ -257,6 +257,7 @@ void loop()
     // This is relevant in very calm navigation conditions, whan the gyro has a very small action on the PID. 
 
     float deadband = DEADBAND;
+    
     integdev -= TABDEV[indextabdev];
     if (DeviationHeading < DEADBAND && DeviationHeading > -DEADBAND)
     {
@@ -449,8 +450,8 @@ void ExecuteCalibration(int iFirstTime)
   // If the boat is healing too much : exit
   if (iFirstTime == 0 && VScalarProduct(VGrav, VVert) < MAXHEALING) return;
 
-  xflat = VScalarProduct(VXRefFrame, VMag);
-  yflat = VScalarProduct(VYRefFrame, VMag);
+  xflat = VMag[0];
+  yflat = VMag[1];
    
   // If we are in the first loop of calibration mode, just initialize min and max from read values
   if (iFirstTime == 1)
