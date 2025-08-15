@@ -1,6 +1,6 @@
 /*
 Source file of the Milo autopilot.
-Version : 6
+Version : 7
 
 Runs on a arduino-compatible nano board.
 It may be edited using the arduino IDE (the arduino programming platform).
@@ -111,6 +111,8 @@ void setup()
   //Initialize the Serial Port to view information on the Serial Monitor
   Serial.begin(9600);  
   Wire.begin();          //Initialize I2C communication to the let the library communicate with the sensor.
+
+  Serial.println("Milo autopilot program - Version 7");
 
   // IMU sensor initialization
   while(!mySensor.begin())
@@ -341,11 +343,16 @@ void loop()
   }
  
   // Measure current on both branches of the h-bridge board. If too high pause for a few seconds
-  // But we do it only from the second loop of the same "iRun", because in the first loop the measured current is always very high anyway.
+  // But we do it only after a few milliseconds of the same "iRun" (here 50 ms), because at the beginning
+  // the measured current is always very high anyway.
   // Motor will restart if it turns in opposite sense.
   
-  if (iRun != iRunPrevious) iRunPrevious = iRun;
-    
+  if (iRun != iRunPrevious)
+  {
+    iRunPrevious = iRun;
+    delay(50); 
+  } 
+
   else 
   {
     if (iRun != 0)
